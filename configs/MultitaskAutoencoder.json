@@ -1,0 +1,17 @@
+{
+    "method": "grid",
+    "name": "DeepLearning-sweep",
+    "metric": {
+        "name": "total_loss",
+        "goal": "minimize"
+    },
+    "parameters": {
+        "latent_dim_size": {"values": [32, 64, 128]},
+        "alpha": {"values": [0.0, 0.2, 0.3, 0.8]},
+        "window_size": {"values": [null]},
+        "learning_rate": {"values": [0.01, 0.001, 0.0001]},
+        "model_name": {"values": ["MultitaskAutoencoder"]},
+        "output_size": {"values": [4]},
+        "fold": {"values": [0, 1, 2, 3, 4]}
+    }
+}

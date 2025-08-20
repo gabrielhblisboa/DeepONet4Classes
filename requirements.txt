@@ -1,0 +1,8 @@
+torch==1.9.0
+torchvision==0.10.0
+numpy==1.21.0
+scikit-learn==0.24.2
+matplotlib==3.4.2
+h5py==3.12.1
+soundfile==0.12.1
+librosa==0.10.2
