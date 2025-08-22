@@ -74,8 +74,9 @@ def geo_mean(iterable):
 def sp_index(recall):
     return np.sqrt(recall.mean() * geo_mean(recall))
 
+
 class Trainer:
-    def __init__(self, model, optimizer, scheduler, criterion, num_epochs=10, verbose=False, plotpath=None):
+    def __init__(self, model, optimizer, scheduler, criterion, num_epochs=10, verbose=False, plotpath=None, wandb_logging=False):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -83,9 +84,14 @@ class Trainer:
         self.num_epochs = num_epochs
         self.verbose = verbose
         self.plotpath = plotpath
+        self.wandb_logging = wandb_logging
 
-    def train(self, train_loader, test_loader):
+    def train(self, train_loader, test_loader, patience=10):
         self.model.train()
+        best_loss = float('inf')
+        patience_counter = 0
+        best_model_state = None
+
         for epoch in range(self.num_epochs):
             epoch_loss = 0.0
             with alive_bar(len(train_loader), title=f"Training Epoch {epoch+1}/{self.num_epochs}") as bar:
@@ -97,12 +103,50 @@ class Trainer:
                     self.optimizer.step()
                     epoch_loss += loss.item()
                     bar()
-            val_loss, accuracy, precision, recall, f1, roc_auc = self.evaluate(test_loader)
+            
+            val_loss, accuracy, precision, recall, f1, roc_auc, y_pred, y_target = self.evaluate(test_loader)
+
+            if val_loss < best_loss:
+                best_loss = val_loss
+                patience_counter = 0
+                best_model_state = copy.deepcopy(self.model.state_dict())
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print("=" * 80)
+                    print(f"Early stopping at epoch {epoch+1}. Restoring best model state.")
+                    print("=" * 80)
+                    break
+            
+            if self.scheduler is not None:
+                self.scheduler.step()
+                lr = self.scheduler.get_last_lr()[0]
+            else:
+                lr = None
+            
+            if self.wandb_logging:
+                wandb.log({
+                    'epoch': epoch + 1,
+                    'loss': epoch_loss / len(train_loader),
+                    'val_loss': val_loss,
+                    'accuracy': accuracy,
+                    'precision': precision,
+                    'recall': np.mean(recall),
+                    'f1_score': f1,
+                    'roc_auc': roc_auc,
+                    'learning_rate': lr
+                })
+
             if self.verbose:
                 print(f"Epoch {epoch+1}/{self.num_epochs}, Loss: {epoch_loss/len(train_loader):.4f}, "
-                    f"Val Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, "
-                    f"Recall: {recall}, F1 Score: {f1:.4f}, ROC AUC: {roc_auc:.4f}")
-                
+                      f"Val Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, "
+                      f"Recall: {np.mean(recall):.4f}, F1 Score: {f1:.4f}, ROC AUC: {roc_auc:.4f}")
+
+        if best_model_state is not None:
+            self.model.load_state_dict(best_model_state)
+        
+        return self.model
+
     def evaluate(self, test_loader):
         self.model.eval()
         all_preds = []
@@ -111,97 +155,27 @@ class Trainer:
         with torch.no_grad():
             for batch_data, batch_target in test_loader:
                 output = self.model(batch_data)
+                loss = self.criterion(output, batch_target)
+                val_loss += loss.item()
                 _, preds = torch.max(output, 1)
                 all_preds.extend(preds.cpu().numpy())
                 all_targets.extend(batch_target.cpu().numpy())
-                val_loss += self.criterion(output, batch_target).item()
-
+        
         val_loss /= len(test_loader)
         y_pred = np.array(all_preds)
         y_target = np.array(all_targets)
         
         accuracy = np.mean(recall_score(y_target, y_pred, average=None))
-        precision = precision_score(y_target, y_pred, average='weighted')
-        recall = recall_score(y_target, y_pred, average=None)
-        f1 = f1_score(y_target, y_pred, average='weighted')
-        roc_auc = roc_auc_score(label_binarize(y_target, classes=[0, 1, 2, 3]), 
-                                label_binarize(y_pred, classes=[0, 1, 2, 3]), 
-                                average='weighted', multi_class='ovr')
-
-        return val_loss, accuracy, precision, recall, f1, roc_auc
-
-
-    def evaluate_embeddings(self, test_loader, fig=None, ax=None, path=None):
-        """
-        Evaluates the embeddings using t-SNE for visualization.
-        """
-        self.model.eval()
-        all_embeddings = []
-        all_targets = []
-
-        with torch.no_grad():
-            for batch_data, batch_target in test_loader:
-                # Extract embeddings (before final output layer)
-                embeddings = self.model(batch_data, embeddings=True)
-                all_embeddings.append(embeddings.cpu().numpy())
-                all_targets.extend(batch_target.cpu().numpy())
-
-        # Concatenate all embeddings into one array
-        all_embeddings = np.concatenate(all_embeddings, axis=0)
-        all_targets = np.array(all_targets)
-
-        local_dim = skdim.id.TwoNN().fit_transform(all_embeddings)
-        intrinsic_dimension = local_dim.mean()
-
-        # Apply t-SNE for dimensionality reduction (reduce to 2D)
-        tsne = TSNE(n_components=2, random_state=42)
-        embeddings_2d = tsne.fit_transform(all_embeddings)
-
-        scores = {
-            'trustworthiness-5':  trustworthiness(all_embeddings, embeddings_2d, n_neighbors=5),
-            'trustworthiness-10': trustworthiness(all_embeddings, embeddings_2d, n_neighbors=10),
-            'trustworthiness-20': trustworthiness(all_embeddings, embeddings_2d, n_neighbors=20),
-            'intrinsic_dimension': intrinsic_dimension
-        }
-
-        for n_neighbors in [5, 10, 20, 30, 40, 50]:
-            id_estimator = KNN(k=n_neighbors)
-            id_estimator.fit(all_embeddings)
-            estimated_id = id_estimator.dimension_
-            scores[f'knn-id-{n_neighbors}'] = estimated_id
-
-        return embeddings_2d, all_targets, scores
-
-
-    def evaluate_embeddings_continuity(self, embeddings, targets, fig=None, ax=None, path=None):
-    
-
-        dict_embeddings = dict()
-        for i in np.unique(targets):
-            class_embeddings = embeddings[targets == i]
-            
-            dict_embeddings[i] = dict()
-            dict_embeddings[i]["class_embeddings"] = class_embeddings
-            # for this case, the class embeddings are all from the same run
-
-            correlation, distances_from_start, time_ranks = calculate_spearman_rank_correlation(class_embeddings)
-            local_step_consistency, step_lengths = calculate_local_step_consistency(class_embeddings) 
-
-            dict_embeddings[i]["scores"] = {
-                "spearman": {
-                    "correlation": correlation,
-                    "distances_from_start": distances_from_start,
-                    "time_ranks": time_ranks
-                },
-                "local_consistency": {
-                    "local_consistency": local_step_consistency,
-                    "step_lengths": step_lengths
-                }
-            }
-
-        return dict_embeddings
-
-
+        precision = precision_score(y_target, y_pred, average='weighted', zero_division=0)
+        recall = recall_score(y_target, y_pred, average=None, zero_division=0)
+        f1 = f1_score(y_target, y_pred, average='weighted', zero_division=0)
+        roc_auc = roc_auc_score(
+            label_binarize(y_target, classes=[0, 1, 2, 3]),
+            label_binarize(y_pred, classes=[0, 1, 2, 3]),
+            average='weighted',
+            multi_class='ovr'
+        )
+        return val_loss, accuracy, precision, recall, f1, roc_auc, y_pred, y_target
         
 
 class MultitaskTrainer(Trainer):
