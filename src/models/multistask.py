@@ -2,8 +2,10 @@ import functools
 import typing
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
 
-from base_model import BaseModel
 
 class MultitaskAutoencoder(torch.nn.Module):
     def __init__(self, input_size, hidden_layer_sizes, output_size):
@@ -51,18 +53,12 @@ class MultitaskAutoencoder(torch.nn.Module):
         reconstructed = self.reconstruction_layer(reconstructed)
         
         return class_output, reconstructed
-    
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import math
+  
 
 class ConvAutoencoderMultitask(nn.Module):
     def __init__(self, input_height, input_width, num_classes, latent_dim_size=128, dropout_rate=0.5):
         super(ConvAutoencoderMultitask, self).__init__()
-        
+    
         self.input_height = input_height
         self.input_width = input_width
         self.dropout_rate = dropout_rate

@@ -332,7 +332,7 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'MLP-debug-v3'
+        project_name = f'MLP-debug-v4'
     else:
         project_name = f'MLP-4Classes-v5'
     sweep_configuration['name'] = f"{project_name}-sweep"

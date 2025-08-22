@@ -2,7 +2,7 @@ import torch
 import functools
 import typing
 
-from base_model import BaseModel
+from src.models.base_model import BaseModel
 
 class MLP(BaseModel):
     def __init__(
