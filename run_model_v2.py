@@ -1,6 +1,7 @@
 import torch
 # Adicionando MLP e Trainer aos imports
-from src.model import ConvAutoencoderMultitask, MultitaskAutoencoder, MultitaskUNet, MLP
+from src.models.mlp import MLP
+from src.models.multistask import ConvAutoencoderMultitask, MultitaskAutoencoder, MultitaskUNet
 from src.training import Trainer, MultitaskTrainer, calculate_class_weights
 from src.io.offline import load_raw_data
 from src.signal.passivesonar import lofar
