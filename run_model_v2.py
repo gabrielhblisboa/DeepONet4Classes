@@ -1,6 +1,7 @@
 import torch
 # Adicionando MLP e Trainer aos imports
 from src.models.mlp import MLP
+from src.models.deeponet import DeepONet
 from src.models.multistask import ConvAutoencoderMultitask, MultitaskAutoencoder, MultitaskUNet
 from src.training import Trainer, MultitaskTrainer, calculate_class_weights
 from src.io.offline import load_raw_data
@@ -81,7 +82,7 @@ def load_data():
 
     return lofar_data, data, trgt
 
-def model_select(config):
+def model_select(config, branch_net = None):
     window_size = config.window_size
     
     if config.model_name == "MultitaskAutoencoder":
@@ -100,6 +101,14 @@ def model_select(config):
     elif config.model_name == "MLP":
         return lambda input_size: MLP(input_shape=input_size, hidden_channels=config.hidden_channels, n_targets=4, dropout=config.dropout)
     
+    elif config.model_name == "DeepONet-MLP":
+        return lambda input_size: DeepONet(branch_net= MLP(input_shape=input_size,
+                                                           hidden_channels=config.hidden_channels, 
+                                                           n_targets=config.embedding_dim, 
+                                                           dropout=config.dropout),
+                                           n_targets=config.embedding_dim, 
+                                           embedding_dim=config.embedding_dim)
+    
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -107,6 +116,8 @@ def run_experiment(config, lofar_data, results_path, device):
     # Initialize the model, optimizer, and criterion
     alpha = config.alpha if hasattr(config, 'alpha') else None
     window_size = config.window_size
+    
+    non_multitask_models_list = ["MLP", "DeepONet-MLP"]
 
     if window_size is None:
         overlap = None
@@ -144,7 +155,7 @@ def run_experiment(config, lofar_data, results_path, device):
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer_fold, gamma=0.93)
         clf_criterion_fold = torch.nn.CrossEntropyLoss(weight=class_weights)
 
-        if config.model_name == "MLP":
+        if config.model_name in non_multitask_models_list:
             trainer_fold = Trainer(model_fold, optimizer_fold, scheduler, clf_criterion_fold,
                                    num_epochs=100, verbose=True, wandb_logging=True)
             trainer_fold.train(train_loader_fold, test_loader_fold, patience=10)
@@ -258,10 +269,14 @@ def make_hp_name(config):
     output_size = config.output_size if hasattr(config, 'output_size') else 'na'
     window_size = config.window_size
     learning_rate = config.learning_rate
+    
 
     if config.model_name == "MLP":
         hidden_str = '_'.join(map(str, config.hidden_channels))
         return f"hidden_{hidden_str}_dropout_{config.dropout}_lr_{learning_rate}"
+    if config.model_name == "DeepONet-MLP":
+         hidden_str = '_'.join(map(str, config.hidden_channels))
+         return f"hidden_{hidden_str}_dropout_{config.dropout}_lr_{learning_rate}_embedding_{config.embedding_dim}"
     elif config.model_name == "MultitaskAutoencoder":
         return f"alpha_{alpha}_latent_{latent_dim_size}_window_{window_size}_lr_{learning_rate}"
     elif config.model_name == "ConvAutoencoderMultitask":
@@ -332,9 +347,9 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'MLP-debug-v4'
+        project_name = f'DeepONet-debug-v1'
     else:
-        project_name = f'MLP-4Classes-v5'
+        project_name = f'DeepONet-v1'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)
