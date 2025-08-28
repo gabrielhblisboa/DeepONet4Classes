@@ -178,6 +178,109 @@ class Trainer:
         return val_loss, accuracy, precision, recall, f1, roc_auc, y_pred, y_target
         
 
+class DeepONetTrainer:
+    def __init__(self, model, optimizer, scheduler, criterion, num_epochs=10, verbose=False, plotpath=None, wandb_logging=False):
+        self.model = model
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.criterion = criterion
+        self.num_epochs = num_epochs
+        self.verbose = verbose
+        self.plotpath = plotpath
+        self.wandb_logging = wandb_logging
+
+    def train(self, train_loader, test_loader, patience=10):
+        self.model.train()
+        best_loss = float('inf')
+        patience_counter = 0
+        best_model_state = None
+
+        for epoch in range(self.num_epochs):
+            epoch_loss = 0.0
+            with alive_bar(len(train_loader), title=f"Training Epoch {epoch+1}/{self.num_epochs}") as bar:
+                for batch_data, batch_target, coords in train_loader:
+                    self.optimizer.zero_grad()
+                    output = self.model(batch_data, coords)
+                    loss = self.criterion(output, batch_target)
+                    loss.backward()
+                    self.optimizer.step()
+                    epoch_loss += loss.item()
+                    bar()
+            
+            val_loss, accuracy, precision, recall, f1, roc_auc, y_pred, y_target = self.evaluate(test_loader)
+
+            if val_loss < best_loss:
+                best_loss = val_loss
+                patience_counter = 0
+                best_model_state = copy.deepcopy(self.model.state_dict())
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print("=" * 80)
+                    print(f"Early stopping at epoch {epoch+1}. Restoring best model state.")
+                    print("=" * 80)
+                    break
+            
+            if self.scheduler is not None:
+                self.scheduler.step()
+                lr = self.scheduler.get_last_lr()[0]
+            else:
+                lr = None
+            
+            if self.wandb_logging:
+                wandb.log({
+                    'epoch': epoch + 1,
+                    'loss': epoch_loss / len(train_loader),
+                    'val_loss': val_loss,
+                    'accuracy': accuracy,
+                    'precision': precision,
+                    'recall': np.mean(recall),
+                    'f1_score': f1,
+                    'roc_auc': roc_auc,
+                    'learning_rate': lr
+                })
+
+            if self.verbose:
+                print(f"Epoch {epoch+1}/{self.num_epochs}, Loss: {epoch_loss/len(train_loader):.4f}, "
+                      f"Val Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, "
+                      f"Recall: {np.mean(recall):.4f}, F1 Score: {f1:.4f}, ROC AUC: {roc_auc:.4f}")
+
+        if best_model_state is not None:
+            self.model.load_state_dict(best_model_state)
+        
+        return self.model
+
+    def evaluate(self, test_loader):
+        self.model.eval()
+        all_preds = []
+        all_targets = []
+        val_loss = 0.0
+        with torch.no_grad():
+            for batch_data, batch_target, coords in test_loader:
+                output = self.model(batch_data, coords)
+                loss = self.criterion(output, batch_target)
+                val_loss += loss.item()
+                _, preds = torch.max(output, 1)
+                all_preds.extend(preds.cpu().numpy())
+                all_targets.extend(batch_target.cpu().numpy())
+        
+        val_loss /= len(test_loader)
+        y_pred = np.array(all_preds)
+        y_target = np.array(all_targets)
+        
+        accuracy = np.mean(recall_score(y_target, y_pred, average=None))
+        precision = precision_score(y_target, y_pred, average='weighted', zero_division=0)
+        recall = recall_score(y_target, y_pred, average=None, zero_division=0)
+        f1 = f1_score(y_target, y_pred, average='weighted', zero_division=0)
+        roc_auc = roc_auc_score(
+            label_binarize(y_target, classes=[0, 1, 2, 3]),
+            label_binarize(y_pred, classes=[0, 1, 2, 3]),
+            average='weighted',
+            multi_class='ovr'
+        )
+        return val_loss, accuracy, precision, recall, f1, roc_auc, y_pred, y_target
+    
+
 class MultitaskTrainer(Trainer):
     def __init__(
         self, 
