@@ -1,0 +1,42 @@
+{
+    "method": "grid",
+    "metric": {
+        "goal": "maximize",
+        "name": "final_f1_score"
+    },
+    "parameters": {
+        "model_name": {
+            "value": "DeepONet"
+        },
+        "fold": {
+            "values": [0, 1, 2, 3, 4]
+        },
+        "learning_rate": {
+            "values": [0.0001]
+        },
+        "p_dim": {
+            "value": [128]
+        },
+        "branch_net": {
+            "value": {
+                "name": "MLP",
+                "params": {
+                    "hidden_channels": [64],
+                    "dropout": 0.2
+                }
+            }
+        },
+        "trunk_net": {
+            "value": {
+                "name": "MLP",
+                "params": {
+                    "hidden_channels": [32, 64],
+                    "dropout": 0.2
+                }
+            }
+        },
+        "window_size": {
+            "value": null
+        }
+    }
+}

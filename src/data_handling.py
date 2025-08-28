@@ -3,7 +3,8 @@ import numpy as np
 
 import itertools
 import random
-import torch 
+import torch
+from torch.utils.data import Dataset
 
 class_map = {
     "ClassA": 0,
@@ -101,3 +102,36 @@ class CustomDataloader:
 
     def __getitem__(self, idx):
         return self.data[idx], self.target[idx]
+    
+class DeepONetDataloader(Dataset):
+    """
+    Dataloader customizado para a DeepONet.
+    Para cada sinal, ele cria N amostras, onde N é o número de classes.
+    Cada amostra consiste no sinal, uma classe consultada (one-hot) e o alvo (1.0 ou 0.0).
+    """
+    def __init__(self, X_data, y_data, num_classes=4):
+        self.X = X_data
+        self.y = y_data
+        self.num_classes = num_classes
+
+    def __len__(self):
+        # O tamanho total é o número de sinais multiplicado pelo número de classes
+        return self.X.shape[0] * self.num_classes
+
+    def __getitem__(self, idx):
+        # Calcula o índice do sinal original e qual classe está sendo consultada
+        signal_idx = idx // self.num_classes
+        query_class_idx = idx % self.num_classes
+        
+        # Pega o sinal e seu rótulo verdadeiro
+        branch_input = self.X[signal_idx]
+        true_class = self.y[signal_idx]
+        
+        # Cria o input da Trunk Net (one-hot da classe consultada)
+        trunk_input = torch.zeros(self.num_classes)
+        trunk_input[query_class_idx] = 1.0
+        
+        # O alvo é 1.0 se a classe consultada for a classe verdadeira, senão é 0.0
+        target = torch.tensor(1.0 if query_class_idx == true_class else 0.0, dtype=torch.float)
+        
+        return branch_input, trunk_input, target
