@@ -13,6 +13,7 @@ class DeepONet(BaseModel):
     def __init__(self,
                  branch_net: torch.nn.Module,
                  trunk_net: torch.nn.Module,
+                 class_head: torch.nn.Module,
                  use_bias: bool = True):
         super().__init__()
 
@@ -21,7 +22,7 @@ class DeepONet(BaseModel):
         self.trunk_net = trunk_net
         self.use_bias = use_bias
         
-        self.class_head = nn.Linear(in_features= 32, out_features=4)
+        self.class_head = class_head
         
         if use_bias:
             self.bias = torch.nn.Parameter(torch.randn(1))
@@ -34,8 +35,8 @@ class DeepONet(BaseModel):
         trunk_output = self.trunk_net(coords)
         
         
-        print(f'------- branch shape ------->{branch_output.shape}')
-        print(f'------- trunk shape ------->{trunk_output.shape}')
+        # print(f'------- branch shape ------->{branch_output.shape}')
+        # print(f'------- trunk shape ------->{trunk_output.shape}')
         # Produto escalar via multiplicação de matrizes
         logits = torch.matmul(branch_output, trunk_output.t())
         # logits = torch.einsum("bf,bf->bf", branch_output, trunk_output)
@@ -43,8 +44,8 @@ class DeepONet(BaseModel):
         if self.use_bias:
             logits = logits + self.bias
         # [32,4][32,4]
-        print('------- logit shape ------->')
-        print(logits.shape)
+        # print('------- logit shape ------->')
+        # print(logits.shape)
         
         y_pred = self.class_head(logits)
         return y_pred

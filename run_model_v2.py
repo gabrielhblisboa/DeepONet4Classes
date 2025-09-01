@@ -1,3 +1,4 @@
+from src.models.cnn import CNN
 import torch
 # Adicionando MLP e Trainer aos imports
 from src.models.mlp import MLP
@@ -125,7 +126,21 @@ def model_select(config, branch_net = None):
                                                            hidden_channels=config.hidden_channels, 
                                                            n_targets=config.embedding_dim, 
                                                            dropout=config.dropout))
-    
+    elif config.model_name == "CNN":
+        return lambda input_size: CNN(input_shape=input_size,
+                                      conv_n_neurons=config.conv_n_neurons,
+                                      conv_activation=torch.nn.PReLU,
+                                      conv_pooling=torch.nn.MaxPool2d,
+                                      conv_pooling_size=config.conv_pooling_size,
+                                      conv_dropout=config.conv_dropout,
+                                      batch_norm=torch.nn.BatchNorm2d,
+                                      kernel_size=config.kernel_size,
+                                      padding=config.padding,
+                                      has_class_head=True,
+                                      hidden_channels=config.classification_n_neurons,
+                                      n_targets=4,
+                                      dropout=config.classification_dropout)
+
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -134,7 +149,7 @@ def run_experiment(config, lofar_data, results_path, device):
     alpha = config.alpha if hasattr(config, 'alpha') else None
     window_size = config.window_size
     
-    non_multitask_models_list = ["MLP", "DeepONet-MLP"]
+    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN"]
 
     if window_size is None:
         overlap = None
@@ -300,6 +315,8 @@ def make_hp_name(config):
         return f"alpha_{alpha}_latent_{latent_dim_size}_output_{output_size}_window_{window_size}_lr_{learning_rate}"
     elif config.model_name == "MultitaskUNet":
         return f"alpha_{alpha}_latent_{latent_dim_size}_output_{output_size}_window_{window_size}_lr_{learning_rate}"
+    elif config.model_name == "CNN":
+        return f"conv_neurons_{config.conv_n_neurons}_pooling_{config.conv_pooling_size}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}"
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -364,9 +381,9 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'DeepONet-debug-v1'
+        project_name = f'CNN-debug-v1'
     else:
-        project_name = f'DeepONet-v1'
+        project_name = f'CNN-v1'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)

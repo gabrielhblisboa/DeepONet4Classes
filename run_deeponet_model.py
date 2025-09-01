@@ -103,8 +103,11 @@ def model_select(config, branch_net = None):
                                            trunk_net= MLP(input_shape=coords,
                                                            hidden_channels=config.hidden_channels, 
                                                            n_targets=config.embedding_dim, 
+                                                           dropout=config.dropout),
+                                           class_head= MLP(input_shape=32,
+                                                           hidden_channels=config.hidden_channels,
+                                                           n_targets=4,
                                                            dropout=config.dropout))
-    
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -142,8 +145,8 @@ def run_experiment(config, lofar_data, results_path, device):
         is2d = window_size is not None and config.model_name != "MLP"
         train_dataset_fold = DeepOnetDataLoader(X_train, y_train, coords_train, device=device)
         test_dataset_fold = DeepOnetDataLoader(X_test, y_test, coords_test, device=device)
-        train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True)
-        test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False)
+        train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True, drop_last=True)
+        test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False, drop_last=True)
 
         input_size = X_train.shape[1]
         coords_size = coords_train.shape[1]
@@ -331,9 +334,9 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'DeepONet-debug-v2'
+        project_name = f'DeepONet-debug-v4'
     else:
-        project_name = f'DeepONet-v2'
+        project_name = f'DeepONet-v4'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)
