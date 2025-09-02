@@ -135,7 +135,6 @@ def model_select(config, branch_net = None):
                                       conv_dropout=config.conv_dropout,
                                       batch_norm=torch.nn.BatchNorm2d,
                                       kernel_size=config.kernel_size,
-                                      padding=config.padding,
                                       has_class_head=True,
                                       hidden_channels=config.classification_n_neurons,
                                       n_targets=4,
@@ -149,7 +148,7 @@ def run_experiment(config, lofar_data, results_path, device):
     alpha = config.alpha if hasattr(config, 'alpha') else None
     window_size = config.window_size
     
-    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN"]
+    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN", "DeepONet-CNN-MLP"]
 
     if window_size is None:
         overlap = None
@@ -168,11 +167,15 @@ def run_experiment(config, lofar_data, results_path, device):
     lorocv_no_window = LoroCV(n_splits=5, window_size=window_size, overlap=overlap, random_seed=42)
 
     fold = config.fold
-    for i, (X_train, y_train, X_test, y_test) in enumerate(lorocv_no_window.split(lofar_data)):
+    for i, (X_train, y_train, X_test, y_test, _, _) in enumerate(lorocv_no_window.split(lofar_data)):
         if i != fold:
             continue
         # Compute class weights for loss balancing
         class_weights = calculate_class_weights(y_train).to(device)
+        
+        if config.model_name in ["CNN", "DeepONet-CNN-MLP"]:
+            X_train = np.expand_dims(X_train, axis=1) # Adiciona a dimensão do canal
+            X_test = np.expand_dims(X_test, axis=1)
         
         # Create DataLoader instances for the fold
         is2d = window_size is not None and config.model_name != "MLP"
@@ -180,8 +183,8 @@ def run_experiment(config, lofar_data, results_path, device):
         test_dataset_fold = CustomDataloader(X_test, y_test, is2d=is2d, device=device)
         train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True)
         test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False)
-
-        input_size = X_train.shape[1]
+        
+        input_size = X_train.shape[1:] if config.model_name in ["CNN", "DeepONet-CNN-MLP"] else X_train.shape[1]
         model_fold = model_builder(input_size).to(device)
         optimizer_fold = torch.optim.Adam(model_fold.parameters(), lr=config.learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer_fold, gamma=0.93)

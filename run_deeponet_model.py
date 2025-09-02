@@ -1,6 +1,7 @@
 import torch
 # Adicionando MLP e Trainer aos imports
 from src.models.mlp import MLP
+from src.models.cnn import CNN
 from src.models.deeponet import DeepONet
 from src.models.multistask import ConvAutoencoderMultitask, MultitaskAutoencoder, MultitaskUNet
 from src.training import Trainer, MultitaskTrainer, calculate_class_weights, DeepONetTrainer
@@ -108,6 +109,27 @@ def model_select(config, branch_net = None):
                                                            hidden_channels=config.hidden_channels,
                                                            n_targets=4,
                                                            dropout=config.dropout))
+    elif config.model_name == "DeepONet-CNN-MLP":
+        return lambda input_size, coords: DeepONet(branch_net= CNN(input_shape=input_size,
+                                                                    conv_n_neurons=config.conv_n_neurons,
+                                                                    conv_activation=torch.nn.PReLU,
+                                                                    conv_pooling=torch.nn.MaxPool2d,
+                                                                    conv_pooling_size=config.conv_pooling_size,
+                                                                    conv_dropout=config.conv_dropout,
+                                                                    batch_norm=torch.nn.BatchNorm2d,
+                                                                    kernel_size=config.kernel_size,
+                                                                    has_class_head=True,
+                                                                    hidden_channels=config.classification_n_neurons,
+                                                                    n_targets=config.embedding_dim,
+                                                                    dropout=config.classification_dropout),
+                                           trunk_net= MLP(input_shape=coords,
+                                                           hidden_channels=config.hidden_channels, 
+                                                           n_targets=config.embedding_dim, 
+                                                           dropout=config.dropout),
+                                           class_head= MLP(input_shape=32,
+                                                           hidden_channels=config.hidden_channels,
+                                                           n_targets=4,
+                                                           dropout=config.dropout))
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -116,7 +138,7 @@ def run_experiment(config, lofar_data, results_path, device):
     alpha = config.alpha if hasattr(config, 'alpha') else None
     window_size = config.window_size
     
-    non_multitask_models_list = ["MLP", "DeepONet-MLP-MLP"]
+    non_multitask_models_list = ["MLP", "DeepONet-MLP-MLP", "DeepONet-CNN-MLP"]
 
     if window_size is None:
         overlap = None
@@ -141,6 +163,10 @@ def run_experiment(config, lofar_data, results_path, device):
         # Compute class weights for loss balancing
         class_weights = calculate_class_weights(y_train).to(device)
         
+        if config.model_name in ["CNN", "DeepONet-CNN-MLP"]:
+            X_train = np.expand_dims(X_train, axis=1) # Adiciona a dimensão do canal
+            X_test = np.expand_dims(X_test, axis=1)
+        
         # Create DataLoader instances for the fold
         is2d = window_size is not None and config.model_name != "MLP"
         train_dataset_fold = DeepOnetDataLoader(X_train, y_train, coords_train, device=device)
@@ -148,7 +174,7 @@ def run_experiment(config, lofar_data, results_path, device):
         train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True, drop_last=True)
         test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False, drop_last=True)
 
-        input_size = X_train.shape[1]
+        input_size = X_train.shape[1:] if config.model_name in ["CNN", "DeepONet-CNN-MLP"] else X_train.shape[1]
         coords_size = coords_train.shape[1]
         model_fold = model_builder(input_size, coords_size).to(device)
         optimizer_fold = torch.optim.Adam(model_fold.parameters(), lr=config.learning_rate)
@@ -271,7 +297,7 @@ def make_hp_name(config):
     learning_rate = config.learning_rate
 
     hidden_str = '_'.join(map(str, config.hidden_channels))
-    return f"hidden_{hidden_str}_dropout_{config.dropout}_lr_{learning_rate}_embedding_{config.embedding_dim}"
+    return f"conv_neurons_{config.conv_n_neurons}_pooling_{config.conv_pooling_size}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}_hidden_{hidden_str}_dropout_{config.dropout}_lr_{learning_rate}_embedding_{config.embedding_dim}"
 
 def has_been_run(hash):
     hash_file = "config_hashes.txt"

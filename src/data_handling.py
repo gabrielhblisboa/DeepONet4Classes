@@ -93,7 +93,8 @@ class LoroCV:
 class CustomDataloader:
     def __init__(self, data, target, is2d=False, device='cpu'):
         if is2d:
-            data = torch.tensor(data.reshape(data.shape[0], 1, data.shape[1], data.shape[2]), dtype=torch.float32).to(device)
+            # data = torch.tensor(data.reshape(data.shape[0], 1, data.shape[1], data.shape[2]), dtype=torch.float32).to(device)
+            data = torch.tensor(data, dtype=torch.float32).to(device)
         else:
             data = torch.tensor(data.reshape(data.shape[0], -1), dtype=torch.float32).to(device)
         target = torch.tensor(target, dtype=torch.long).to(device)
@@ -108,8 +109,9 @@ class CustomDataloader:
         return self.data[idx], self.target[idx]
     
 class DeepOnetDataLoader:
-    def __init__(self, data, target, coords, device='cpu'):
-        data = torch.tensor(data.reshape(data.shape[0], -1), dtype=torch.float32).to(device)
+    def __init__(self, data, target, coords, is2d=False, device='cpu'):
+        # data = torch.tensor(data.reshape(data.shape[0], -1), dtype=torch.float32).to(device)
+        data = torch.tensor(data, dtype=torch.float32, device=device)
         target = torch.tensor(target, dtype=torch.long).to(device)
         coords = torch.tensor(coords, dtype=torch.float32).to(device)
 
