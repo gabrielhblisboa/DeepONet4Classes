@@ -118,7 +118,7 @@ def model_select(config, branch_net = None):
                                                                     conv_dropout=config.conv_dropout,
                                                                     batch_norm=torch.nn.BatchNorm2d,
                                                                     kernel_size=config.kernel_size,
-                                                                    has_class_head=True,
+                                                                    has_class_head=False,
                                                                     hidden_channels=config.classification_n_neurons,
                                                                     n_targets=config.embedding_dim,
                                                                     dropout=config.classification_dropout),
@@ -126,7 +126,7 @@ def model_select(config, branch_net = None):
                                                            hidden_channels=config.hidden_channels, 
                                                            n_targets=config.embedding_dim, 
                                                            dropout=config.dropout),
-                                           class_head= MLP(input_shape=32,
+                                           class_head= MLP(input_shape=16384,
                                                            hidden_channels=config.hidden_channels,
                                                            n_targets=4,
                                                            dropout=config.dropout))
@@ -297,7 +297,10 @@ def make_hp_name(config):
     learning_rate = config.learning_rate
 
     hidden_str = '_'.join(map(str, config.hidden_channels))
-    return f"conv_neurons_{config.conv_n_neurons}_pooling_{config.conv_pooling_size}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}_hidden_{hidden_str}_dropout_{config.dropout}_lr_{learning_rate}_embedding_{config.embedding_dim}"
+    conv_neurons_str = '_'.join(map(str, config.conv_n_neurons))
+    conv_pooling_str = '_'.join(map(str, config.conv_pooling_size))
+    
+    return f"conv_neurons_{conv_neurons_str}_pooling_{conv_pooling_str}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}_hidden_{hidden_str}_dropout_{config.dropout}_embedding_{config.embedding_dim}"
 
 def has_been_run(hash):
     hash_file = "config_hashes.txt"
@@ -360,9 +363,9 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'DeepONet-debug-v4'
+        project_name = f'ConvDeepONet-debug-v4'
     else:
-        project_name = f'DeepONet-v4'
+        project_name = f'ConvDeepONet-v4'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)

@@ -1,4 +1,5 @@
 from src.models.cnn import CNN
+from src.models.ckan import CKAN
 import torch
 # Adicionando MLP e Trainer aos imports
 from src.models.mlp import MLP
@@ -139,6 +140,13 @@ def model_select(config, branch_net = None):
                                       hidden_channels=config.classification_n_neurons,
                                       n_targets=4,
                                       dropout=config.classification_dropout)
+        
+    elif config.model_name == "CKAN":
+        return lambda input_size: CKAN(input_shape=input_size,
+                                       window_size=window_size,
+                                       grid_size=config.grid_size,
+                                       dropout_rate=config.dropout)
+
 
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
@@ -148,7 +156,7 @@ def run_experiment(config, lofar_data, results_path, device):
     alpha = config.alpha if hasattr(config, 'alpha') else None
     window_size = config.window_size
     
-    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN", "DeepONet-CNN-MLP"]
+    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN", "CKAN", "DeepONet-CNN-MLP"]
 
     if window_size is None:
         overlap = None
@@ -173,7 +181,7 @@ def run_experiment(config, lofar_data, results_path, device):
         # Compute class weights for loss balancing
         class_weights = calculate_class_weights(y_train).to(device)
         
-        if config.model_name in ["CNN", "DeepONet-CNN-MLP"]:
+        if config.model_name in ["CNN", "CKAN", "DeepONet-CNN-MLP"]:
             X_train = np.expand_dims(X_train, axis=1) # Adiciona a dimensão do canal
             X_test = np.expand_dims(X_test, axis=1)
         
@@ -184,7 +192,7 @@ def run_experiment(config, lofar_data, results_path, device):
         train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True)
         test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False)
         
-        input_size = X_train.shape[1:] if config.model_name in ["CNN", "DeepONet-CNN-MLP"] else X_train.shape[1]
+        input_size = X_train.shape[1:] if config.model_name in ["CNN", "CKAN", "DeepONet-CNN-MLP"] else X_train.shape[1]
         model_fold = model_builder(input_size).to(device)
         optimizer_fold = torch.optim.Adam(model_fold.parameters(), lr=config.learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer_fold, gamma=0.93)
@@ -320,6 +328,8 @@ def make_hp_name(config):
         return f"alpha_{alpha}_latent_{latent_dim_size}_output_{output_size}_window_{window_size}_lr_{learning_rate}"
     elif config.model_name == "CNN":
         return f"conv_neurons_{config.conv_n_neurons}_pooling_{config.conv_pooling_size}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}"
+    elif config.model_name == "CKAN":
+        return f"window_{window_size}_grid_{config.grid_size}_dropout_{config.dropout}_lr_{learning_rate}"
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -384,9 +394,9 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'CNN-debug-v1'
+        project_name = f'CKAN-debug-v1'
     else:
-        project_name = f'CNN-v1'
+        project_name = f'CKAN-v1'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)
