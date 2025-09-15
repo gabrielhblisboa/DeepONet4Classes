@@ -8,8 +8,8 @@ import glob
 
 def plot_confusion_matrix(results_path: Path):
     """
-    Calculates the confusion matrix for each fold, then takes the mean
-    and std deviation between folds and plots the result.
+    Calculates the confusion matrix for each fold, plots each one individually,
+    then calculates the mean and std deviation between folds and plots the final result.
     """
     pred_files = sorted(glob.glob(str(results_path / "data" / "predictions_fold_*.npy")))
     target_files = sorted(glob.glob(str(results_path / "data" / "targets_fold_*.npy")))
@@ -24,9 +24,10 @@ def plot_confusion_matrix(results_path: Path):
 
     normalized_cms = []
     class_labels = [0, 1, 2, 3]
+    class_names = ['Class A', 'Class B', 'Class C', 'Class D']
 
     # Calculates the normalized confusion matrix for each fold
-    for pred_file, target_file in zip(pred_files, target_files):
+    for fold_idx, (pred_file, target_file) in enumerate(zip(pred_files, target_files), 1):
         preds = np.load(pred_file)
         targets = np.load(target_file)
         
@@ -40,10 +41,30 @@ def plot_confusion_matrix(results_path: Path):
         
         normalized_cms.append(cm_normalized)
 
+        # --- NOVA SEÇÃO: Plotar a matriz de confusão para cada fold individualmente ---
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(cm_normalized, annot=True, fmt=".1%", cmap='Blues',
+                    xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 12})
+        
+        plt.title(f'Confusion Matrix - Fold {fold_idx}\nModel: {results_path.parent.name} - HPs: {results_path.name}')
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        
+        # Salva a figura do fold atual
+        fold_save_path = results_path / f"confusion_matrix_fold_{fold_idx}.png"
+        plt.savefig(fold_save_path, dpi=300, bbox_inches='tight')
+        plt.close() # Fecha a figura para não interferir nas próximas
+        print(f"Confusion matrix for fold {fold_idx} saved in: {fold_save_path}")
+        # --- FIM DA NOVA SEÇÃO ---
+
+
     if not normalized_cms:
         print("No confusion matrix has been calculated.")
         return
 
+    # O código abaixo para calcular e plotar a média continua o mesmo
+    print("\n--- Calculating Mean and Std Dev between all folds ---")
+    
     # Calculates mean and std between folds
     mean_cm = np.mean(normalized_cms, axis=0)
     std_cm = np.std(normalized_cms, axis=0)
@@ -55,26 +76,25 @@ def plot_confusion_matrix(results_path: Path):
             std_val = std_cm[i, j]
             annotations[i, j] = f"{mean_val:.1%} ± {std_val:.1%}"
 
-    # Plots heatmap
-    class_names = ['Class A', 'Class B', 'Class C', 'Class D']
-    
+    # Plots heatmap for the mean
     plt.figure(figsize=(12, 10))
     sns.heatmap(mean_cm, annot=annotations, fmt="", cmap='Blues', 
                 xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 12})
     
-    plt.title(f'Confusion Matrix (Mean ± Desvio Padrão) between {len(pred_files)} Folds\nModel: {results_path.parent.name} - HPs: {results_path.name}')
+    plt.title(f'Mean Confusion Matrix (± Std Dev) across {len(pred_files)} Folds\nModel: {results_path.parent.name} - HPs: {results_path.name}')
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
     
-    # Salva a figura
+    # Salva a figura da média
     save_path = results_path / "confusion_matrix_mean_std.png"
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
     
-    print(f"\nConfusion matrix saved in: {save_path}")
-    print("\Mean (Normalized):")
+    print(f"\nMean confusion matrix saved in: {save_path}")
+    print("\nMean (Normalized):")
     np.set_printoptions(precision=4)
     print(mean_cm)
-    print("\nStd (Normalized):")
+    print("\nStd Dev (Normalized):")
     print(std_cm)
 
 if __name__ == '__main__':

@@ -1,11 +1,10 @@
-from src.models.cnn import CNN
-from src.models.ckan import CKAN
 import torch
 # Adicionando MLP e Trainer aos imports
 from src.models.mlp import MLP
+from src.models.cnn import CNN
 from src.models.deeponet import DeepONet
 from src.models.multistask import ConvAutoencoderMultitask, MultitaskAutoencoder, MultitaskUNet
-from src.training import Trainer, MultitaskTrainer, calculate_class_weights
+from src.training import Trainer, MultitaskTrainer, calculate_class_weights, DeepONetTrainer
 from src.io.offline import load_raw_data
 from src.signal.passivesonar import lofar
 from src.signal.utils import resample
@@ -16,7 +15,7 @@ import matplotlib.pyplot as plt
 import json
 import argparse
 import wandb
-from src.data_handling import CustomDataloader, LoroCV
+from src.data_handling import CustomDataloader, LoroCV, DeepOnetDataLoader
 from src.visualization import plot_lofargram, plot_tsne_embeddings, palette
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
@@ -25,18 +24,12 @@ matplotlib.use('agg')
 
 
 def get_trunk_coords(device, sim_height=512, sim_width=512):
-    transducer_locs=np.array([[0]*8,[40.,	101.,	163.,	225.,	286.,	348.,	410.,	472.]]) # FOR LOW RES
-
-
-    transducer_locs = transducer_locs.transpose((1,0))
-    transducer_locs = torch.tensor(transducer_locs, dtype=torch.float32).to(device)
-
     x = np.arange(0, sim_height)
     y = np.arange(0, sim_width)
     xx, yy = np.meshgrid(x, y)
     locations = np.stack([xx.ravel(), yy.ravel()], axis=-1)
     sensor_locations = torch.tensor(locations, dtype=torch.float).to(device)
-    return sensor_locations, transducer_locs
+    return sensor_locations
 
 def save_embeddings_and_targets(config, embeddings, all_targets, results_path):
     """
@@ -64,6 +57,7 @@ def load_data():
     final_fs = 22050//decimation_rate
 
     raw_data = raw_data.apply(lambda rr: resample(rr['signal'], rr['fs'], final_fs = final_fs))
+    
     lofar_data = raw_data.apply(lofar,
                                 fs=final_fs,
                                 n_pts_fft = n_pts_fft,
@@ -83,7 +77,7 @@ def load_data():
 
     data = np.concatenate([ Sxx
                     for cls_name, run in lofar_data.items()
-                    for run_name, (Sxx, _, _) in run.items()], axis=0)
+                    for run_name, (Sxx, f, t) in run.items()], axis=0)
 
     print("=" * 75)
     print("Completed Data Preprocessing with the Following Configuration:")
@@ -102,23 +96,7 @@ def load_data():
 def model_select(config, branch_net = None):
     window_size = config.window_size
     
-    if config.model_name == "MultitaskAutoencoder":
-        latent_dim_size = config.latent_dim_size
-        output_size = config.output_size
-        return lambda input_size, coords: MultitaskAutoencoder(input_size, [latent_dim_size, 32], output_size)
-    
-    elif config.model_name == "ConvAutoencoderMultitask":
-        latent_dim_size = config.latent_dim_size
-        return lambda input_size, coords: ConvAutoencoderMultitask(window_size, 512, 4, latent_dim_size=latent_dim_size, dropout_rate=0.5)
-    
-    elif config.model_name == "MultitaskUNet":
-        latent_dim_size = config.latent_dim_size
-        return lambda input_size, coords: MultitaskUNet(window_size, 512, 4, latent_dim_size=latent_dim_size)
-    
-    elif config.model_name == "MLP":
-        return lambda input_size, coords: MLP(input_shape=input_size, hidden_channels=config.hidden_channels, n_targets=4, dropout=config.dropout)
-    
-    elif config.model_name == "DeepONet-MLP":
+    if config.model_name == "DeepONet-MLP-MLP":
         return lambda input_size, coords: DeepONet(branch_net= MLP(input_shape=input_size,
                                                            hidden_channels=config.hidden_channels, 
                                                            n_targets=config.embedding_dim, 
@@ -126,28 +104,32 @@ def model_select(config, branch_net = None):
                                            trunk_net= MLP(input_shape=coords,
                                                            hidden_channels=config.hidden_channels, 
                                                            n_targets=config.embedding_dim, 
+                                                           dropout=config.dropout),
+                                           class_head= MLP(input_shape=32,
+                                                           hidden_channels=config.hidden_channels,
+                                                           n_targets=4,
                                                            dropout=config.dropout))
-    elif config.model_name == "CNN":
-        return lambda input_size: CNN(input_shape=input_size,
-                                      conv_n_neurons=config.conv_n_neurons,
-                                      conv_activation=torch.nn.PReLU,
-                                      conv_pooling=torch.nn.MaxPool2d,
-                                      conv_pooling_size=config.conv_pooling_size,
-                                      conv_dropout=config.conv_dropout,
-                                      batch_norm=torch.nn.BatchNorm2d,
-                                      kernel_size=config.kernel_size,
-                                      has_class_head=True,
-                                      hidden_channels=config.classification_n_neurons,
-                                      n_targets=4,
-                                      dropout=config.classification_dropout)
-        
-    elif config.model_name == "CKAN":
-        return lambda input_size: CKAN(input_shape=input_size,
-                                       window_size=window_size,
-                                       grid_size=config.grid_size,
-                                       dropout_rate=config.dropout)
-
-
+    elif config.model_name == "DeepONet-CNN-MLP":
+        return lambda input_size, coords: DeepONet(branch_net= CNN(input_shape=input_size,
+                                                                    conv_n_neurons=config.conv_n_neurons,
+                                                                    conv_activation=torch.nn.PReLU,
+                                                                    conv_pooling=torch.nn.MaxPool2d,
+                                                                    conv_pooling_size=config.conv_pooling_size,
+                                                                    conv_dropout=config.conv_dropout,
+                                                                    batch_norm=torch.nn.BatchNorm2d,
+                                                                    kernel_size=config.kernel_size,
+                                                                    has_class_head=False,
+                                                                    hidden_channels=config.classification_n_neurons,
+                                                                    n_targets=config.embedding_dim,
+                                                                    dropout=config.classification_dropout),
+                                           trunk_net= MLP(input_shape=coords,
+                                                           hidden_channels=config.hidden_channels, 
+                                                           n_targets=config.embedding_dim, 
+                                                           dropout=config.dropout),
+                                           class_head= MLP(input_shape=16384,
+                                                           hidden_channels=config.hidden_channels,
+                                                           n_targets=4,
+                                                           dropout=config.dropout))
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -156,7 +138,7 @@ def run_experiment(config, lofar_data, results_path, device):
     alpha = config.alpha if hasattr(config, 'alpha') else None
     window_size = config.window_size
     
-    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN", "CKAN", "DeepONet-CNN-MLP"]
+    non_multitask_models_list = ["MLP", "DeepONet-MLP-MLP", "DeepONet-CNN-MLP"]
 
     if window_size is None:
         overlap = None
@@ -175,31 +157,32 @@ def run_experiment(config, lofar_data, results_path, device):
     lorocv_no_window = LoroCV(n_splits=5, window_size=window_size, overlap=overlap, random_seed=42)
 
     fold = config.fold
-    for i, (X_train, y_train, X_test, y_test, _, _) in enumerate(lorocv_no_window.split(lofar_data)):
+    for i, (X_train, y_train, X_test, y_test, coords_train, coords_test) in enumerate(lorocv_no_window.split(lofar_data)):
         if i != fold:
             continue
         # Compute class weights for loss balancing
         class_weights = calculate_class_weights(y_train).to(device)
         
-        if config.model_name in ["CNN", "CKAN", "DeepONet-CNN-MLP"]:
+        if config.model_name in ["CNN", "DeepONet-CNN-MLP"]:
             X_train = np.expand_dims(X_train, axis=1) # Adiciona a dimensão do canal
             X_test = np.expand_dims(X_test, axis=1)
         
         # Create DataLoader instances for the fold
         is2d = window_size is not None and config.model_name != "MLP"
-        train_dataset_fold = CustomDataloader(X_train, y_train, is2d=is2d, device=device)
-        test_dataset_fold = CustomDataloader(X_test, y_test, is2d=is2d, device=device)
-        train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True)
-        test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False)
-        
-        input_size = X_train.shape[1:] if config.model_name in ["CNN", "CKAN", "DeepONet-CNN-MLP"] else X_train.shape[1]
-        model_fold = model_builder(input_size).to(device)
+        train_dataset_fold = DeepOnetDataLoader(X_train, y_train, coords_train, device=device)
+        test_dataset_fold = DeepOnetDataLoader(X_test, y_test, coords_test, device=device)
+        train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True, drop_last=True)
+        test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False, drop_last=True)
+
+        input_size = X_train.shape[1:] if config.model_name in ["CNN", "DeepONet-CNN-MLP"] else X_train.shape[1]
+        coords_size = coords_train.shape[1]
+        model_fold = model_builder(input_size, coords_size).to(device)
         optimizer_fold = torch.optim.Adam(model_fold.parameters(), lr=config.learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer_fold, gamma=0.93)
         clf_criterion_fold = torch.nn.CrossEntropyLoss(weight=class_weights)
 
         if config.model_name in non_multitask_models_list:
-            trainer_fold = Trainer(model_fold, optimizer_fold, scheduler, clf_criterion_fold,
+            trainer_fold = DeepONetTrainer(model_fold, optimizer_fold, scheduler, clf_criterion_fold,
                                    num_epochs=100, verbose=True, wandb_logging=True)
             trainer_fold.train(train_loader_fold, test_loader_fold, patience=10)
             
@@ -312,26 +295,12 @@ def make_hp_name(config):
     output_size = config.output_size if hasattr(config, 'output_size') else 'na'
     window_size = config.window_size
     learning_rate = config.learning_rate
-    
 
-    if config.model_name == "MLP":
-        hidden_str = '_'.join(map(str, config.hidden_channels))
-        return f"hidden_{hidden_str}_dropout_{config.dropout}_lr_{learning_rate}"
-    if config.model_name == "DeepONet-MLP":
-         hidden_str = '_'.join(map(str, config.hidden_channels))
-         return f"hidden_{hidden_str}_dropout_{config.dropout}_lr_{learning_rate}_embedding_{config.embedding_dim}"
-    elif config.model_name == "MultitaskAutoencoder":
-        return f"alpha_{alpha}_latent_{latent_dim_size}_window_{window_size}_lr_{learning_rate}"
-    elif config.model_name == "ConvAutoencoderMultitask":
-        return f"alpha_{alpha}_latent_{latent_dim_size}_output_{output_size}_window_{window_size}_lr_{learning_rate}"
-    elif config.model_name == "MultitaskUNet":
-        return f"alpha_{alpha}_latent_{latent_dim_size}_output_{output_size}_window_{window_size}_lr_{learning_rate}"
-    elif config.model_name == "CNN":
-        return f"conv_neurons_{config.conv_n_neurons}_pooling_{config.conv_pooling_size}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}"
-    elif config.model_name == "CKAN":
-        return f"window_{window_size}_grid_{config.grid_size}_dropout_{config.dropout}_lr_{learning_rate}"
-    else:
-        raise ValueError(f"Model name {config.model_name} not recognized.")
+    hidden_str = '_'.join(map(str, config.hidden_channels))
+    conv_neurons_str = '_'.join(map(str, config.conv_n_neurons))
+    conv_pooling_str = '_'.join(map(str, config.conv_pooling_size))
+    
+    return f"conv_neurons_{conv_neurons_str}_pooling_{conv_pooling_str}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}_hidden_{hidden_str}_dropout_{config.dropout}_embedding_{config.embedding_dim}"
 
 def has_been_run(hash):
     hash_file = "config_hashes.txt"
@@ -394,9 +363,9 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'CKAN-debug-v1'
+        project_name = f'ConvDeepONet-debug-v4'
     else:
-        project_name = f'CKAN-v1'
+        project_name = f'ConvDeepONet-v4'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)

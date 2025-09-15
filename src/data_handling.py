@@ -39,15 +39,15 @@ class LoroCV:
             # print(train_ship_list)
             # print()
             # print()
-            X_train, y_train = self.flatten(lofar_data, train_ship_list, test=False)
-            X_test, y_test = self.flatten(lofar_data, test_ship_list, test=True)
+            X_train, y_train, coords_train = self.flatten(lofar_data, train_ship_list, test=False)
+            X_test, y_test, coords_test = self.flatten(lofar_data, test_ship_list, test=True)
 
-            yield X_train, y_train, X_test, y_test
+            yield X_train, y_train, X_test, y_test, coords_train, coords_test
 
     def flatten(self, lofar_data, ship_list, test):
-        trgt, data = list(), list()
+        trgt, data, coords = list(), list(), list()
         for cls_name, ship in ship_list:
-            Sxx, _, _ = lofar_data[cls_name][ship]
+            Sxx, f, t = lofar_data[cls_name][ship]
 
             # Sxx windowing, must check if its working properly
             if test and (self.test_overlap is not None):
@@ -64,9 +64,14 @@ class LoroCV:
 
             trgt.append(class_map[cls_name] * np.ones(Sxx.shape[0]))
             data.append(Sxx)
+            # mesh = np.meshgrid(f, t)
+            frequency_time_pairs = np.array(np.meshgrid(f, t)).T.reshape(-1, 2)
+            coords.append(frequency_time_pairs)
+        
         trgt = np.concatenate(trgt)
         data = np.concatenate(data, axis=0)
-        return data, trgt
+        coords = np.concatenate(coords, axis=0)
+        return data, trgt, coords
 
     def _prepare_cycler(self, lofar_data):
         shuffle = self.shuffle
@@ -88,7 +93,8 @@ class LoroCV:
 class CustomDataloader:
     def __init__(self, data, target, is2d=False, device='cpu'):
         if is2d:
-            data = torch.tensor(data.reshape(data.shape[0], 1, data.shape[1], data.shape[2]), dtype=torch.float32).to(device)
+            # data = torch.tensor(data.reshape(data.shape[0], 1, data.shape[1], data.shape[2]), dtype=torch.float32).to(device)
+            data = torch.tensor(data, dtype=torch.float32).to(device)
         else:
             data = torch.tensor(data.reshape(data.shape[0], -1), dtype=torch.float32).to(device)
         target = torch.tensor(target, dtype=torch.long).to(device)
@@ -101,3 +107,20 @@ class CustomDataloader:
 
     def __getitem__(self, idx):
         return self.data[idx], self.target[idx]
+    
+class DeepOnetDataLoader:
+    def __init__(self, data, target, coords, is2d=False, device='cpu'):
+        # data = torch.tensor(data.reshape(data.shape[0], -1), dtype=torch.float32).to(device)
+        data = torch.tensor(data, dtype=torch.float32, device=device)
+        target = torch.tensor(target, dtype=torch.long).to(device)
+        coords = torch.tensor(coords, dtype=torch.float32).to(device)
+
+        self.data = data
+        self.target = target
+        self.coords = coords
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.target[idx], self.coords[idx][:]

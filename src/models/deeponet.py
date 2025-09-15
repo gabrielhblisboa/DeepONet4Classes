@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import functools
 import typing
 
@@ -11,31 +12,40 @@ class DeepONet(BaseModel):
     """
     def __init__(self,
                  branch_net: torch.nn.Module,
-                 n_targets: int,
-                 embedding_dim: int = 128,
+                 trunk_net: torch.nn.Module,
+                 class_head: torch.nn.Module,
                  use_bias: bool = True):
         super().__init__()
 
         self.branch_net = branch_net
 
-        self.trunk_net = torch.nn.Embedding(num_embeddings=n_targets, embedding_dim=embedding_dim)
-
+        self.trunk_net = trunk_net
         self.use_bias = use_bias
-        if self.use_bias:
-            self.bias = torch.nn.Parameter(torch.zeros(embedding_dim))
+        
+        self.class_head = class_head
+        
+        if use_bias:
+            self.bias = torch.nn.Parameter(torch.randn(1))
 
 
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
+    def forward(self, data: torch.Tensor, coords: torch.Tensor,) -> torch.Tensor:
         # branch_output -> [batch_size, embedding_dim]
         branch_output = self.branch_net(data)
-
-        # trunk_prototypes -> [n_targets, embedding_dim]
-        trunk_prototypes = self.trunk_net.weight
-
+        
+        trunk_output = self.trunk_net(coords)
+        
+        
+        # print(f'------- branch shape ------->{branch_output.shape}')
+        # print(f'------- trunk shape ------->{trunk_output.shape}')
         # Produto escalar via multiplicação de matrizes
-        logits = torch.matmul(branch_output, trunk_prototypes.t())
+        logits = torch.matmul(branch_output, trunk_output.t())
+        # logits = torch.einsum("bf,bf->bf", branch_output, trunk_output)
 
         if self.use_bias:
             logits = logits + self.bias
-            
-        return logits
+        # [32,4][32,4]
+        # print('------- logit shape ------->')
+        # print(logits.shape)
+        
+        y_pred = self.class_head(logits)
+        return y_pred

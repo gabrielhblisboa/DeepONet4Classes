@@ -21,4 +21,5 @@ data/*
 wandb/*
 results/*
 results_back/*
+best/*
 
