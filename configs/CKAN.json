@@ -12,13 +12,13 @@
             "values": [0.001]
         },
         "window_size": {
-            "values": [16, 32]
+            "values": [32]
         },
         "grid_size": {
-            "values": [3, 5]
+            "values": [3]
         },
         "dropout": {
-            "values": [0, 0.2]
+            "values": [0]
         },
         "fold": {
             "values": [0, 1, 2, 3, 4]

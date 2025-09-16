@@ -1,3 +1,14 @@
+import os
+
+# SOLUÇÃO: Controla o paralelismo para evitar conflitos e o aviso do OpenBLAS.
+# Força as bibliotecas a usarem apenas um thread, o que resolve o problema 
+# de paralelismo aninhado.
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 import torch
 # Adicionando MLP e Trainer aos imports
 from src.models.mlp import MLP
@@ -10,7 +21,6 @@ from src.signal.passivesonar import lofar
 from src.signal.utils import resample
 from pathlib import Path
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 import json
 import argparse
@@ -197,6 +207,23 @@ def run_experiment(config, lofar_data, results_path, device):
             
             np.save(results_path / "data" / f"predictions_fold_{fold}.npy", y_pred)
             np.save(results_path / "data" / f"targets_fold_{fold}.npy", y_target)
+                       
+            fold_embeddings, fold_targets, fold_scores = trainer_fold.evaluate_embeddings(test_loader_fold)
+            embeddings.append(fold_embeddings)
+            all_targets.append(fold_targets)
+
+            accuracies.append(accuracy)
+
+            wandb.log(fold_scores)
+            
+            fig, ax = plt.subplots(figsize=(12, 12/ 1.618))
+            plot_tsne_embeddings(ax, fold_embeddings, fold_targets, palette=palette)
+            plot_name = f"t-SNE_embeddings_fold_{i}"
+            fig.savefig(results_path / "plots" / "png" / f"{plot_name}.png", bbox_inches='tight', dpi=300)
+            fig.savefig(results_path / "plots" / "svg" / f"{plot_name}.svg", bbox_inches='tight')
+
+            wandb.log({"t-SNE plot": wandb.Image(fig)})
+            plt.close(fig)
             
             continue
         
@@ -314,7 +341,7 @@ def store_hash(hash):
     with open("config_hashes.txt", "a") as file:
         file.write(hash + "\n")
 
-def sweep_experiment(project_name):
+def sweep_experiment(project_name, run_name):
     wandb.init(project=project_name)
     config = wandb.config
 
@@ -333,9 +360,9 @@ def sweep_experiment(project_name):
     config.model_id = model_id
 
     if args.debug:
-        results_path = Path(f"./results/debug/{config.model_name}/{hp_name}")
+        results_path = Path(f"./results/debug/{run_name}/{hp_name}")
     else:
-        results_path = Path(f"./results/production/{config.model_name}/{hp_name}")
+        results_path = Path(f"./results/production/{run_name}/{hp_name}")
 
     (results_path / "plots" / "svg").mkdir(parents=True, exist_ok=True)
     (results_path / "plots" / "png").mkdir(parents=True, exist_ok=True)
@@ -363,11 +390,11 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'ConvDeepONet-debug-v4'
+        project_name = f'{args.config}-debug-v6'
     else:
-        project_name = f'ConvDeepONet-v4'
+        project_name = f'{args.config}-v6'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)
 
-    wandb.agent(sweep_id, function=lambda : sweep_experiment(project_name))
+    wandb.agent(sweep_id, function=lambda : sweep_experiment(project_name, project_name))

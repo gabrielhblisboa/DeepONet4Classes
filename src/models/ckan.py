@@ -110,8 +110,12 @@ class CKAN(nn.Module):
     def _forward_features(self, x):
         return self.encoder(x)
 
-    def forward(self, x):
+    def forward(self, x, embeddings=False):
         x = self._forward_features(x)
+        
+        if embeddings:
+            return x
+        
         x = self.flat(x)
         x = self.class_head(x)
         return x
