@@ -176,7 +176,54 @@ class Trainer:
             multi_class='ovr'
         )
         return val_loss, accuracy, precision, recall, f1, roc_auc, y_pred, y_target
+    
+    def evaluate_embeddings(self, test_loader, fig=None, ax=None, path=None):
+        """
+        Evaluates the embeddings using t-SNE for visualization.
+        """
+        self.model.eval()
+        all_embeddings = []
+        all_targets = []
+
+        with torch.no_grad():
+            for batch_data, batch_target in test_loader:
+                # Extract embeddings (before final output layer)
+                embeddings = self.model(batch_data, embeddings=True)
+                all_embeddings.append(embeddings.cpu().numpy())
+                all_targets.extend(batch_target.cpu().numpy())
+
+        # Concatenate all embeddings into one array
+        all_embeddings = np.concatenate(all_embeddings, axis=0)
+        all_targets = np.array(all_targets)
         
+        print("Shape original:", all_embeddings.shape)
+
+        num_samples = all_embeddings.shape[0]
+        all_embeddings_flat = all_embeddings.reshape(num_samples, -1)
+        
+        print("Shape achatado:", all_embeddings_flat.shape)
+
+        local_dim = skdim.id.TwoNN().fit_transform(all_embeddings_flat)
+        intrinsic_dimension = local_dim.mean()
+
+        # Apply t-SNE for dimensionality reduction (reduce to 2D)
+        tsne = TSNE(n_components=2, random_state=42)
+        embeddings_2d = tsne.fit_transform(all_embeddings_flat)
+
+        scores = {
+            'trustworthiness-5':  trustworthiness(all_embeddings_flat, embeddings_2d, n_neighbors=5),
+            'trustworthiness-10': trustworthiness(all_embeddings_flat, embeddings_2d, n_neighbors=10),
+            'trustworthiness-20': trustworthiness(all_embeddings_flat, embeddings_2d, n_neighbors=20),
+            'intrinsic_dimension': intrinsic_dimension
+        }
+
+        for n_neighbors in [5, 10, 20, 30, 40, 50]:
+            id_estimator = KNN(k=n_neighbors)
+            id_estimator.fit(all_embeddings_flat)
+            estimated_id = id_estimator.dimension_
+            scores[f'knn-id-{n_neighbors}'] = estimated_id
+
+        return embeddings_2d, all_targets, scores        
 
 class DeepONetTrainer:
     def __init__(self, model, optimizer, scheduler, criterion, num_epochs=10, verbose=False, plotpath=None, wandb_logging=False):
@@ -280,6 +327,53 @@ class DeepONetTrainer:
         )
         return val_loss, accuracy, precision, recall, f1, roc_auc, y_pred, y_target
     
+    def evaluate_embeddings(self, test_loader, fig=None, ax=None, path=None):
+        """
+        Evaluates the embeddings using t-SNE for visualization.
+        """
+        self.model.eval()
+        all_embeddings = []
+        all_targets = []
+
+        with torch.no_grad():
+            for batch_data, batch_target, coords in test_loader:
+                # Extract embeddings (before final output layer)
+                embeddings = self.model(batch_data, coords, embeddings=True)
+                all_embeddings.append(embeddings.cpu().numpy())
+                all_targets.extend(batch_target.cpu().numpy())
+
+       # Concatenate all embeddings into one array
+        all_embeddings = np.concatenate(all_embeddings, axis=0)
+        all_targets = np.array(all_targets)
+        
+        print("Shape original:", all_embeddings.shape)
+
+        num_samples = all_embeddings.shape[0]
+        all_embeddings_flat = all_embeddings.reshape(num_samples, -1)
+        
+        print("Shape achatado:", all_embeddings_flat.shape)
+
+        local_dim = skdim.id.TwoNN().fit_transform(all_embeddings_flat)
+        intrinsic_dimension = local_dim.mean()
+
+        # Apply t-SNE for dimensionality reduction (reduce to 2D)
+        tsne = TSNE(n_components=2, random_state=42)
+        embeddings_2d = tsne.fit_transform(all_embeddings_flat)
+
+        scores = {
+            'trustworthiness-5':  trustworthiness(all_embeddings_flat, embeddings_2d, n_neighbors=5),
+            'trustworthiness-10': trustworthiness(all_embeddings_flat, embeddings_2d, n_neighbors=10),
+            'trustworthiness-20': trustworthiness(all_embeddings_flat, embeddings_2d, n_neighbors=20),
+            'intrinsic_dimension': intrinsic_dimension
+        }
+
+        for n_neighbors in [5, 10, 20, 30, 40, 50]:
+            id_estimator = KNN(k=n_neighbors)
+            id_estimator.fit(all_embeddings_flat)
+            estimated_id = id_estimator.dimension_
+            scores[f'knn-id-{n_neighbors}'] = estimated_id
+
+        return embeddings_2d, all_targets, scores        
 
 class MultitaskTrainer(Trainer):
     def __init__(
@@ -435,4 +529,45 @@ class MultitaskTrainer(Trainer):
             'reconstruction_loss': val_reconstruction_loss
         }
         return val_loss, accuracy, precision, recall, f1, sp, roc_auc
+    
+    def evaluate_embeddings(self, test_loader, fig=None, ax=None, path=None):
+        """
+        Evaluates the embeddings using t-SNE for visualization.
+        """
+        self.model.eval()
+        all_embeddings = []
+        all_targets = []
+
+        with torch.no_grad():
+            for batch_data, batch_target in test_loader:
+                # Extract embeddings (before final output layer)
+                embeddings = self.model(batch_data, embeddings=True)
+                all_embeddings.append(embeddings.cpu().numpy())
+                all_targets.extend(batch_target.cpu().numpy())
+
+        # Concatenate all embeddings into one array
+        all_embeddings = np.concatenate(all_embeddings, axis=0)
+        all_targets = np.array(all_targets)
+
+        local_dim = skdim.id.TwoNN().fit_transform(all_embeddings)
+        intrinsic_dimension = local_dim.mean()
+
+        # Apply t-SNE for dimensionality reduction (reduce to 2D)
+        tsne = TSNE(n_components=2, random_state=42)
+        embeddings_2d = tsne.fit_transform(all_embeddings)
+
+        scores = {
+            'trustworthiness-5':  trustworthiness(all_embeddings, embeddings_2d, n_neighbors=5),
+            'trustworthiness-10': trustworthiness(all_embeddings, embeddings_2d, n_neighbors=10),
+            'trustworthiness-20': trustworthiness(all_embeddings, embeddings_2d, n_neighbors=20),
+            'intrinsic_dimension': intrinsic_dimension
+        }
+
+        for n_neighbors in [5, 10, 20, 30, 40, 50]:
+            id_estimator = KNN(k=n_neighbors)
+            id_estimator.fit(all_embeddings)
+            estimated_id = id_estimator.dimension_
+            scores[f'knn-id-{n_neighbors}'] = estimated_id
+
+        return embeddings_2d, all_targets, scores
     

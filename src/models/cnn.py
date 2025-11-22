@@ -68,8 +68,13 @@ class CNN(BaseModel):
         return self.conv_layers(data)
 
 
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
+    def forward(self, data: torch.Tensor, embeddings=False) -> torch.Tensor:
         data = self.to_feature_space(data)
+        
+        if embeddings:
+            return data
+        
         if self.has_class_head:
             data = self.mlp(data)
+        
         return data

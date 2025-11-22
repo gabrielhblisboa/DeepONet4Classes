@@ -28,24 +28,21 @@ class DeepONet(BaseModel):
             self.bias = torch.nn.Parameter(torch.randn(1))
 
 
-    def forward(self, data: torch.Tensor, coords: torch.Tensor,) -> torch.Tensor:
-        # branch_output -> [batch_size, embedding_dim]
+    def forward(self, data: torch.Tensor, coords: torch.Tensor, embeddings=False) -> torch.Tensor:
         branch_output = self.branch_net(data)
+        
+        # if (embeddings):
+        #     return branch_output
         
         trunk_output = self.trunk_net(coords)
         
-        
-        # print(f'------- branch shape ------->{branch_output.shape}')
-        # print(f'------- trunk shape ------->{trunk_output.shape}')
-        # Produto escalar via multiplicação de matrizes
         logits = torch.matmul(branch_output, trunk_output.t())
-        # logits = torch.einsum("bf,bf->bf", branch_output, trunk_output)
 
         if self.use_bias:
             logits = logits + self.bias
-        # [32,4][32,4]
-        # print('------- logit shape ------->')
-        # print(logits.shape)
+
+        if (embeddings):
+            return logits
         
         y_pred = self.class_head(logits)
         return y_pred

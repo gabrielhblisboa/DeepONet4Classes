@@ -1,3 +1,15 @@
+import os
+
+# SOLUÇÃO: Controla o paralelismo para evitar conflitos e o aviso do OpenBLAS.
+# Força as bibliotecas a usarem apenas um thread, o que resolve o problema 
+# de paralelismo aninhado.
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
+
 from src.models.cnn import CNN
 from src.models.ckan import CKAN
 import torch
@@ -11,7 +23,7 @@ from src.signal.passivesonar import lofar
 from src.signal.utils import resample
 from pathlib import Path
 import numpy as np
-import os
+# import os
 import matplotlib.pyplot as plt
 import json
 import argparse
@@ -140,6 +152,19 @@ def model_select(config, branch_net = None):
                                       hidden_channels=config.classification_n_neurons,
                                       n_targets=4,
                                       dropout=config.classification_dropout)
+    elif config.model_name == "CNN-BIGBOSS":
+        return lambda input_size: CNN(input_shape=input_size,
+                                      conv_n_neurons=config.conv_n_neurons,
+                                      conv_activation=torch.nn.PReLU,
+                                      conv_pooling=torch.nn.MaxPool2d,
+                                      conv_pooling_size=config.conv_pooling_size,
+                                      conv_dropout=config.conv_dropout,
+                                      batch_norm=torch.nn.BatchNorm2d,
+                                      kernel_size=config.kernel_size,
+                                      has_class_head=True,
+                                      hidden_channels=config.classification_n_neurons,
+                                      n_targets=4,
+                                      dropout=config.classification_dropout)
         
     elif config.model_name == "CKAN":
         return lambda input_size: CKAN(input_shape=input_size,
@@ -156,7 +181,7 @@ def run_experiment(config, lofar_data, results_path, device):
     alpha = config.alpha if hasattr(config, 'alpha') else None
     window_size = config.window_size
     
-    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN", "CKAN", "DeepONet-CNN-MLP"]
+    non_multitask_models_list = ["MLP", "DeepONet-MLP", "CNN", "CKAN", "CNN-BIGBOSS"]
 
     if window_size is None:
         overlap = None
@@ -181,7 +206,7 @@ def run_experiment(config, lofar_data, results_path, device):
         # Compute class weights for loss balancing
         class_weights = calculate_class_weights(y_train).to(device)
         
-        if config.model_name in ["CNN", "CKAN", "DeepONet-CNN-MLP"]:
+        if config.model_name in ["CNN", "CKAN", "CNN-BIGBOSS"]:
             X_train = np.expand_dims(X_train, axis=1) # Adiciona a dimensão do canal
             X_test = np.expand_dims(X_test, axis=1)
         
@@ -192,7 +217,7 @@ def run_experiment(config, lofar_data, results_path, device):
         train_loader_fold = DataLoader(train_dataset_fold, batch_size=32, shuffle=True)
         test_loader_fold = DataLoader(test_dataset_fold, batch_size=32, shuffle=False)
         
-        input_size = X_train.shape[1:] if config.model_name in ["CNN", "CKAN", "DeepONet-CNN-MLP"] else X_train.shape[1]
+        input_size = X_train.shape[1:] if config.model_name in ["CNN", "CKAN", "CNN-BIGBOSS"] else X_train.shape[1]
         model_fold = model_builder(input_size).to(device)
         optimizer_fold = torch.optim.Adam(model_fold.parameters(), lr=config.learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer_fold, gamma=0.93)
@@ -214,6 +239,24 @@ def run_experiment(config, lofar_data, results_path, device):
             
             np.save(results_path / "data" / f"predictions_fold_{fold}.npy", y_pred)
             np.save(results_path / "data" / f"targets_fold_{fold}.npy", y_target)
+            
+            
+            fold_embeddings, fold_targets, fold_scores = trainer_fold.evaluate_embeddings(test_loader_fold)
+            embeddings.append(fold_embeddings)
+            all_targets.append(fold_targets)
+
+            accuracies.append(accuracy)
+
+            wandb.log(fold_scores)
+            
+            fig, ax = plt.subplots(figsize=(12, 12/ 1.618))
+            plot_tsne_embeddings(ax, fold_embeddings, fold_targets, palette=palette)
+            plot_name = f"t-SNE_embeddings_fold_{i}"
+            fig.savefig(results_path / "plots" / "png" / f"{plot_name}.png", bbox_inches='tight', dpi=300)
+            fig.savefig(results_path / "plots" / "svg" / f"{plot_name}.svg", bbox_inches='tight')
+
+            wandb.log({"t-SNE plot": wandb.Image(fig)})
+            plt.close(fig)
             
             continue
         
@@ -330,6 +373,8 @@ def make_hp_name(config):
         return f"conv_neurons_{config.conv_n_neurons}_pooling_{config.conv_pooling_size}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}"
     elif config.model_name == "CKAN":
         return f"window_{window_size}_grid_{config.grid_size}_dropout_{config.dropout}_lr_{learning_rate}"
+    elif config.model_name == "CNN-BIGBOSS":
+        return f"conv_neurons_{config.conv_n_neurons}_pooling_{config.conv_pooling_size}_dropout_{config.conv_dropout}_kernel_{config.kernel_size}_class_neurons_{config.classification_n_neurons}_class_dropout_{config.classification_dropout}_lr_{learning_rate}"
     else:
         raise ValueError(f"Model name {config.model_name} not recognized.")
 
@@ -394,9 +439,9 @@ if __name__ == '__main__':
         sweep_configuration = json.load(f)
 
     if args.debug:
-        project_name = f'CKAN-debug-v1'
+        project_name = f'{args.config}-debug-v2'
     else:
-        project_name = f'CKAN-v1'
+        project_name = f'{args.config}-v2'
     sweep_configuration['name'] = f"{project_name}-sweep"
 
     sweep_id = wandb.sweep(sweep_configuration, project=project_name)
