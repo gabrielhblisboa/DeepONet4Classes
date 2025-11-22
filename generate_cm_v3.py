@@ -69,7 +69,7 @@ def plot_confusion_matrix(results_path: Path):
         plt.figure(figsize=(12, 10))
         sns.heatmap(cm_normalized, annot=True, fmt=".1%", cmap='Blues',
                     xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 12})
-        plt.title(f'Confusion Matrix - Fold {fold_idx}\nModel: {results_path.parent.name} - HPs: {results_path.name}')
+        plt.title(f'Confusion Matrix - Fold {fold_idx}\nModel: {results_path.parent.name}')
         plt.ylabel('True Label')
         plt.xlabel('Predicted Label')
         fold_save_path = results_path / f"confusion_matrix_fold_{fold_idx}.png"
@@ -103,7 +103,62 @@ def plot_confusion_matrix(results_path: Path):
     print("--- Calculating Mean and Std Dev of Confusion Matrix ---")
     mean_cm = np.mean(normalized_cms, axis=0)
     std_cm = np.std(normalized_cms, axis=0)
-    # ... etc
+    
+    # --- NOVO TRECHO PARA PLOTAR MÉDIA ± DESVIO PADRÃO ---
+
+    # 1. Criar a matriz de anotações (strings formatadas)
+    #    Iteramos por cada valor da média e do desvio padrão e formatamos
+    annot_labels = (np.asarray([f"{mean:.1%} ± {std:.1%}" 
+                                for mean, std in zip(mean_cm.flatten(), std_cm.flatten())])
+                   ).reshape(mean_cm.shape)
+
+    # 2. Plotar o heatmap
+    #    - 'mean_cm' ainda é usado para definir as CORES das células.
+    #    - 'annot=annot_labels' usa nossas strings personalizadas para o TEXTO.
+    #    - 'fmt=''' é importante para dizer ao heatmap para não reformatar nossas strings.
+    plt.figure(figsize=(14, 11)) # Aumentei um pouco o figsize para caber o texto
+    sns.heatmap(mean_cm, 
+                annot=annot_labels, 
+                fmt='',  # Importante: usa a string de 'annot' como está
+                cmap='Blues',
+                xticklabels=class_names, 
+                yticklabels=class_names, 
+                annot_kws={"size": 10}) # Reduzi o tamanho da fonte para caber
+    
+    plt.title(f'Mean Confusion Matrix (± Std Dev) - All Folds\nModel: {results_path.parent.name}')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    
+    # 3. Salvar a nova figura da média
+    mean_save_path = results_path / "confusion_matrix_mean_std.png"
+    plt.savefig(mean_save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"Mean confusion matrix (with std dev) saved to: {mean_save_path}")
+    # --- FIM DO NOVO TRECHO ---
+    
+    # print("--- Plotting Mean Confusion Matrix ---")
+    # plt.figure(figsize=(12, 10))
+    # sns.heatmap(mean_cm, annot=True, fmt=".1%", cmap='Blues',
+    #             xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 12})
+    # plt.title(f'Confusion Matrix - Fold {fold_idx}\nModel: {results_path.parent.name}')
+    # plt.ylabel('True Label')
+    # plt.xlabel('Predicted Label')
+    # fold_save_path = results_path / f"mean_confusion_matrix.png"
+    # plt.savefig(fold_save_path, dpi=300, bbox_inches='tight')
+    # plt.close()
+
+    # print("--- Plotting Std Dev Confusion Matrix ---")
+    # plt.figure(figsize=(12, 10))
+    # sns.heatmap(std_cm, annot=True, fmt=".1%", cmap='Blues',
+    #             xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 12})
+    # plt.title(f'Confusion Matrix - Fold {fold_idx}\nModel: {results_path.parent.name}')
+    # plt.ylabel('True Label')
+    # plt.xlabel('Predicted Label')
+    # fold_save_path = results_path / f"std_dev_confusion_matrix.png"
+    # plt.savefig(fold_save_path, dpi=300, bbox_inches='tight')
+    # plt.close()
+    
 
 if __name__ == '__main__':
     # Nenhuma mudança aqui

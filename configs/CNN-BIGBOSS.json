@@ -6,7 +6,7 @@
     },
     "parameters": {
         "model_name": {
-            "value": "CNN-BIGBOSS"
+            "value": "CNN"
         },
         "fold": {
             "values": [0, 1, 2, 3, 4]
